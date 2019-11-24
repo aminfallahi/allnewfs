@@ -210,9 +210,9 @@ Interrupt::Idle()
     DEBUG(dbgInt, "Machine idling; checking for interrupts.");
     status = IdleMode;
     if (CheckIfDue(TRUE)) {	// check for any pending interrupts
-	status = SystemMode;
-	return;			// return in case there's now
-				// a runnable thread
+		status = SystemMode;
+		return;			// return in case there's now
+					// a runnable thread
     }
 
     // if there are no pending interrupts, and nothing is on the ready
@@ -221,8 +221,11 @@ Interrupt::Idle()
     // is not reached.  Instead, the halt must be invoked by the user program.
 
     DEBUG(dbgInt, "Machine idle.  No interrupts to do.");
+	// MP4 mod tag
+	/*
     cout << "No threads ready or runnable, and no pending interrupts.\n";
     cout << "Assuming the program completed.\n";
+	*/
     Halt();
 }
 
@@ -233,10 +236,44 @@ Interrupt::Idle()
 void
 Interrupt::Halt()
 {
+	// MP4 mod tag
     cout << "Machine halting!\n\n";
+    cout << "This is halt\n";
     kernel->stats->Print();
+	delete debug;
+	
     delete kernel;	// Never returns.
 }
+/*
+#ifdef FILESYS_STUB
+int
+Interrupt::CreateFile(char *filename)
+{
+    return kernel->CreateFile(filename);
+}
+#endif*/
+
+int
+Interrupt::CreateFile(char *filename, int initialSize){
+    return kernel->CreateFile(filename,initialSize);
+}
+OpenFileId
+Interrupt::OpenFile(char *filename){
+    return kernel->OpenFile(filename);
+}
+int
+Interrupt::WriteFile(char *buffer, int size, OpenFileId id){
+    return kernel->WriteFile(buffer,size,id);
+}
+int
+Interrupt::CloseFile(OpenFileId fid){
+    return kernel->CloseFile(fid);
+}
+int
+Interrupt::ReadFile(char *buffer, int size, OpenFileId id){
+    return kernel->ReadFile(buffer,size,id);
+}
+
 
 //----------------------------------------------------------------------
 // Interrupt::Schedule
@@ -292,6 +329,7 @@ Interrupt::CheckIfDue(bool advanceClock)
 	return FALSE;	
     }		
     next = pending->Front();
+
     if (next->when > stats->totalTicks) {
         if (!advanceClock) {		// not time yet
             return FALSE;
@@ -349,3 +387,4 @@ Interrupt::DumpState()
     pending->Apply(PrintPending);
     cout << "\nEnd of pending interrupts\n";
 }
+

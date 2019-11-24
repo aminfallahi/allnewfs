@@ -36,13 +36,13 @@
 #include "copyright.h"
 #include "sysdep.h"
 #include "openfile.h"
-
+typedef int OpenFileId;
 #ifdef FILESYS_STUB 		// Temporarily implement file system calls as 
 				// calls to UNIX, until the real file system
 				// implementation is available
 class FileSystem {
   public:
-    FileSystem() {}
+    FileSystem() { for (int i = 0; i < 20; i++) fileDescriptorTable[i] = NULL; }
 
     bool Create(char *name) {
 	int fileDescriptor = OpenForWrite(name);
@@ -61,6 +61,8 @@ class FileSystem {
 
     bool Remove(char *name) { return Unlink(name) == 0; }
 
+	OpenFile *fileDescriptorTable[20];
+	
 };
 
 #else // FILESYS
@@ -72,23 +74,37 @@ class FileSystem {
     					// If "format", there is nothing on
 					// the disk, so initialize the directory
     					// and the bitmap of free blocks.
+	// MP4 mod tag
+	~FileSystem();
 
-    bool Create(char *name, int initialSize);  	
+    int Create(char *name, int initialSize);  	
 					// Create a file (UNIX creat)
+	int CreateDirectory(char *name);
+
 
     OpenFile* Open(char *name); 	// Open a file (UNIX open)
+	// Andrew
+	OpenFileId SearchForId(char *name);	
+	//OpenFile* OpenById(OpenFileId sector);
+	int Close(OpenFileId id);
 
     bool Remove(char *name);  		// Delete a file (UNIX unlink)
 
-    void List();			// List all the files in the file system
+	bool RecursiveRemove(char *name);
+
+    void List(char *name);			// List all the files in the file system
+
+	void RecursiveList(char* name);
 
     void Print();			// List all the files and their contents
 
   private:
    OpenFile* freeMapFile;		// Bit map of free disk blocks,
-					// represented as a file
+								// represented as a file
    OpenFile* directoryFile;		// "Root" directory -- list of 
-					// file names, represented as a file
+								// file names, represented as a file
+  public:
+   OpenFile* currentOpenFile;
 };
 
 #endif // FILESYS

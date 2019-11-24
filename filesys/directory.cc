@@ -37,9 +37,13 @@
 Directory::Directory(int size)
 {
     table = new DirectoryEntry[size];
+	// MP4 mod tag
+	memset(table, 0, sizeof(DirectoryEntry) * size);  // dummy operation to keep valgrind happy
     tableSize = size;
-    for (int i = 0; i < tableSize; i++)
-	table[i].inUse = FALSE;
+    for (int i = 0; i < tableSize; i++){
+		table[i].inUse = FALSE;
+		table[i].isDir = FALSE;
+	}
 }
 
 //----------------------------------------------------------------------
@@ -110,8 +114,19 @@ Directory::Find(char *name)
     int i = FindIndex(name);
 
     if (i != -1)
-	return table[i].sector;
+		return table[i].sector;
     return -1;
+}
+
+
+// James
+bool 
+Directory::IsDirectory(char *name)
+{
+	int i = FindIndex(name);
+	if( i != -1)
+		return table[i].isDir;
+	return -1;
 }
 
 //----------------------------------------------------------------------
@@ -126,7 +141,7 @@ Directory::Find(char *name)
 //----------------------------------------------------------------------
 
 bool
-Directory::Add(char *name, int newSector)
+Directory::Add(char *name, int newSector, int directory)
 { 
     if (FindIndex(name) != -1)
 	return FALSE;
@@ -134,6 +149,8 @@ Directory::Add(char *name, int newSector)
     for (int i = 0; i < tableSize; i++)
         if (!table[i].inUse) {
             table[i].inUse = TRUE;
+			if(directory)
+				table[i].isDir = TRUE;
             strncpy(table[i].name, name, FileNameMaxLen); 
             table[i].sector = newSector;
         return TRUE;
@@ -157,6 +174,7 @@ Directory::Remove(char *name)
     if (i == -1)
 	return FALSE; 		// name not in directory
     table[i].inUse = FALSE;
+	table[i].inUse = FALSE;
     return TRUE;	
 }
 
@@ -168,11 +186,42 @@ Directory::Remove(char *name)
 void
 Directory::List()
 {
-   for (int i = 0; i < tableSize; i++)
-	if (table[i].inUse)
-	    printf("%s\n", table[i].name);
+	int counter = 0;
+	char D;
+	for (int i = 0; i < tableSize; i++)
+	if (table[i].inUse){
+		if(table[i].isDir)
+			D='D';
+		else
+			D='F';
+		printf("[%d] %s %c\n", counter, table[i].name, D);
+		counter++;
+	}
 }
 
+void
+Directory::RecursiveList()
+{
+	Directory *subDirectory = new Directory(NumDirEntries);	
+	OpenFile *file_tem;
+
+	int counter = 0;
+    char D;
+    for (int i = 0; i < tableSize; i++)
+    if (table[i].inUse){
+        if(table[i].isDir)		// the element is a directory or not
+            D='D';
+        else
+            D='F';
+        printf("[%d] %s %c\n", counter, table[i].name, D);	// print the information
+		if(table[i].isDir){
+			file_tem = new OpenFile(table[i].sector);	// go to next directory
+			subDirectory->FetchFrom(file_tem);
+			subDirectory->RecursiveList();
+		}
+        counter++;
+    }
+}
 //----------------------------------------------------------------------
 // Directory::Print
 // 	List all the file names in the directory, their FileHeader locations,

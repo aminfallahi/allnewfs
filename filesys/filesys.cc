@@ -62,7 +62,7 @@
 // supports extensible files, the directory size sets the maximum number 
 // of files that can be loaded onto the disk.
 #define FreeMapFileSize 	(NumSectors / BitsInByte)
-#define NumDirEntries 		10
+#define NumDirEntries 		64
 #define DirectoryFileSize 	(sizeof(DirectoryEntry) * NumDirEntries)
 
 //----------------------------------------------------------------------
@@ -84,62 +84,84 @@ FileSystem::FileSystem(bool format)
     if (format) {
         PersistentBitmap *freeMap = new PersistentBitmap(NumSectors);
         Directory *directory = new Directory(NumDirEntries);
-	FileHeader *mapHdr = new FileHeader;
-	FileHeader *dirHdr = new FileHeader;
+		FileHeader *mapHdr = new FileHeader;
+		FileHeader *dirHdr = new FileHeader;
 
         DEBUG(dbgFile, "Formatting the file system.");
 
-    // First, allocate space for FileHeaders for the directory and bitmap
-    // (make sure no one else grabs these!)
-	freeMap->Mark(FreeMapSector);	    
-	freeMap->Mark(DirectorySector);
+		// First, allocate space for FileHeaders for the directory and bitmap
+		// (make sure no one else grabs these!)
+		
+		// Andrew
+		// Mark that 0 is for FreeMapSector
+		// 			 1 is for DirectorySector
+		// Mark the sector is occupied
+		freeMap->Mark(FreeMapSector);	    
+		freeMap->Mark(DirectorySector);
 
-    // Second, allocate space for the data blocks containing the contents
-    // of the directory and bitmap files.  There better be enough space!
+		// Second, allocate space for the data blocks containing the contents
+		// of the directory and bitmap files.  There better be enough space!
+		
+	
+		ASSERT(mapHdr->Allocate(freeMap, FreeMapFileSize));
+		ASSERT(dirHdr->Allocate(freeMap, DirectoryFileSize));
 
-	ASSERT(mapHdr->Allocate(freeMap, FreeMapFileSize));
-	ASSERT(dirHdr->Allocate(freeMap, DirectoryFileSize));
+		// Flush the bitmap and directory FileHeaders back to disk
+		// We need to do this before we can "Open" the file, since open
+		// reads the file header off of disk (and currently the disk has garbage
+		// on it!).
 
-    // Flush the bitmap and directory FileHeaders back to disk
-    // We need to do this before we can "Open" the file, since open
-    // reads the file header off of disk (and currently the disk has garbage
-    // on it!).
-
+		// Andrew
+		// WriteBack: write the header into disk
         DEBUG(dbgFile, "Writing headers back to disk.");
-	mapHdr->WriteBack(FreeMapSector);    
-	dirHdr->WriteBack(DirectorySector);
+		mapHdr->WriteBack(FreeMapSector);    
+		dirHdr->WriteBack(DirectorySector);
 
-    // OK to open the bitmap and directory files now
-    // The file system operations assume these two files are left open
-    // while Nachos is running.
+		// OK to open the bitmap and directory files now
+		// The file system operations assume these two files are left open
+		// while Nachos is running.
 
         freeMapFile = new OpenFile(FreeMapSector);
         directoryFile = new OpenFile(DirectorySector);
      
-    // Once we have the files "open", we can write the initial version
-    // of each file back to disk.  The directory at this point is completely
-    // empty; but the bitmap has been changed to reflect the fact that
-    // sectors on the disk have been allocated for the file headers and
-    // to hold the file data for the directory and bitmap.
+		// Once we have the files "open", we can write the initial version
+		// of each file back to disk.  The directory at this point is completely
+		// empty; but the bitmap has been changed to reflect the fact that
+		// sectors on the disk have been allocated for the file headers and
+		// to hold the file data for the directory and bitmap.
 
         DEBUG(dbgFile, "Writing bitmap and directory back to disk.");
-	freeMap->WriteBack(freeMapFile);	 // flush changes to disk
-	directory->WriteBack(directoryFile);
+		freeMap->WriteBack(freeMapFile);	 // flush changes to disk
+		directory->WriteBack(directoryFile);
 
-	if (debug->IsEnabled('f')) {
-	    freeMap->Print();
-	    directory->Print();
+		if (debug->IsEnabled('f')) {
+			freeMap->Print();
+			directory->Print();
         }
         delete freeMap; 
-	delete directory; 
-	delete mapHdr; 
-	delete dirHdr;
+		delete directory; 
+		delete mapHdr; 
+		delete dirHdr;
     } else {
-    // if we are not formatting the disk, just open the files representing
-    // the bitmap and directory; these are left open while Nachos is running
+		// if we are not formatting the disk, just open the files representing
+		// the bitmap and directory; these are left open while Nachos is running
         freeMapFile = new OpenFile(FreeMapSector);
         directoryFile = new OpenFile(DirectorySector);
     }
+	// Andrew
+	currentOpenFile = NULL;
+}
+
+//----------------------------------------------------------------------
+// MP4 mod tag
+// FileSystem::~FileSystem
+//----------------------------------------------------------------------
+FileSystem::~FileSystem()
+{
+	delete freeMapFile;
+	delete directoryFile;
+	// James
+	//delete currentOpenFile;
 }
 
 //----------------------------------------------------------------------
@@ -171,7 +193,7 @@ FileSystem::FileSystem(bool format)
 //	"initialSize" -- size of file to be created
 //----------------------------------------------------------------------
 
-bool
+int
 FileSystem::Create(char *name, int initialSize)
 {
     Directory *directory;
@@ -182,37 +204,128 @@ FileSystem::Create(char *name, int initialSize)
 
     DEBUG(dbgFile, "Creating file " << name << " size " << initialSize);
 
-    directory = new Directory(NumDirEntries);
+	 /* get the first token */
+	directory = new Directory(NumDirEntries);
     directory->FetchFrom(directoryFile);
 
-    if (directory->Find(name) != -1)
-      success = FALSE;			// file is already in directory
+    OpenFile *file_tem = directoryFile;
+    char *token = strtok(name, "/");	// /t0 or name
+    char *token_prev;
+    token_prev = token;					// /t0 or name
+
+    while( token != NULL ){
+        if ((sector = directory->Find(token)) == -1)
+            break;
+		printf("current directory name = %s\n",token);
+        file_tem = new OpenFile(sector);	
+        directory->FetchFrom(file_tem);
+        token_prev = token;
+        token = strtok(NULL, "/");		// /t1 or name
+    }
+	//name = token;
+	printf("file name = %s\n", name);
+
+    if (directory->Find(token) != -1)
+      success = FALSE;					// file is already in directory
     else {	
         freeMap = new PersistentBitmap(freeMapFile,NumSectors);
         sector = freeMap->FindAndSet();	// find a sector to hold the file header
     	if (sector == -1) 		
-            success = FALSE;		// no free block for file header 
-        else if (!directory->Add(name, sector))
-            success = FALSE;	// no space in directory
-	else {
+            success = FALSE;			// no free block for file header 
+        else if (!directory->Add(token, sector, 0))
+            success = FALSE;			// no space in directory
+		else {
     	    hdr = new FileHeader;
-	    if (!hdr->Allocate(freeMap, initialSize))
-            	success = FALSE;	// no space on disk for data
-	    else {	
-	    	success = TRUE;
-		// everthing worked, flush all changes back to disk
-    	    	hdr->WriteBack(sector); 		
-    	    	directory->WriteBack(directoryFile);
+	   	 	if (!hdr->Allocate(freeMap, initialSize))
+            	success = FALSE;		// no space on disk for data
+	    	else {
+	    		success = TRUE;
+				// everthing worked, flush all changes back to disk
+    	    	hdr->WriteBack(sector); 		// sector is where the file locate!		
+				// Andrew
+    	    	directory->WriteBack(file_tem);
     	    	freeMap->WriteBack(freeMapFile);
-	    }
+	    	}
             delete hdr;
-	}
+		}
         delete freeMap;
     }
     delete directory;
     return success;
 }
 
+int
+FileSystem::CreateDirectory(char *name){
+
+	Directory *directory;
+	Directory *subDirectory;
+    PersistentBitmap *freeMap;
+    FileHeader *hdr;
+    int sector;
+    bool success;
+	OpenFile* subDirectoryFile;
+
+	// Andrew
+	directory = new Directory(NumDirEntries);
+    directory->FetchFrom(directoryFile);
+
+	/* get the first token */
+	OpenFile *file_tem = directoryFile;
+    char *token = strtok(name, "/");
+	char *token_prev;
+	token_prev = token;
+	token = strtok(NULL, "/");
+
+    while( token != NULL ){
+		if ((sector = directory->Find(token_prev)) == -1)
+			break;
+		file_tem = new OpenFile(sector);
+		directory->FetchFrom(file_tem);
+		token_prev = token;
+    	token = strtok(NULL, "/");
+   	}
+	if(token == NULL)
+		name = token_prev;
+	else
+		name = token;
+
+	//directory = new Directory(NumDirEntries);
+    //directory->FetchFrom(directoryFile);
+	subDirectory = new Directory(NumDirEntries);
+
+	if (directory->Find(name) != -1)
+      success = FALSE;                  // file is already in directory
+	else {
+        freeMap = new PersistentBitmap(freeMapFile,NumSectors);
+		sector = freeMap->FindAndSet();
+		if (sector == -1)
+            success = FALSE;
+		else if (!directory->Add(name, sector, 1))
+            success = FALSE;
+		else {
+            hdr = new FileHeader;
+            if (!hdr->Allocate(freeMap, DirectoryFileSize))
+                success = FALSE;
+			else {
+                success = TRUE;
+				// Andrew
+				hdr->WriteBack(sector);
+				subDirectoryFile = new OpenFile(sector);
+				subDirectory->WriteBack(subDirectoryFile);
+
+				directory->WriteBack(file_tem);
+                freeMap->WriteBack(freeMapFile);
+            }
+            delete hdr;
+        }
+        delete freeMap;
+    }
+	delete subDirectoryFile;
+	delete subDirectory;
+
+    delete directory;
+    return success;
+}								
 //----------------------------------------------------------------------
 // FileSystem::Open
 // 	Open a file for reading and writing.  
@@ -223,22 +336,102 @@ FileSystem::Create(char *name, int initialSize)
 //	"name" -- the text name of the file to be opened
 //----------------------------------------------------------------------
 
-OpenFile *
+OpenFile*
 FileSystem::Open(char *name)
-{ 
-    Directory *directory = new Directory(NumDirEntries);
+{
+	printf("OPEN FILE NAME = %s\n", name); 
+	Directory *directory = new Directory(NumDirEntries);
     OpenFile *openFile = NULL;
     int sector;
 
-    DEBUG(dbgFile, "Opening file" << name);
+	//directory = new Directory(NumDirEntries);
     directory->FetchFrom(directoryFile);
+
+    OpenFile *file_tem = directoryFile;
+    char *token = strtok(name, "/");    // /t0 or name
+    char *token_prev;
+    token_prev = token;
+
+    while( token != NULL ){
+        if ((sector = directory->Find(token)) == -1 || !directory->IsDirectory(token) )
+            break;
+		printf("Open file in directory %s\n", token);
+        file_tem = new OpenFile(sector);
+        directory->FetchFrom(file_tem);
+        token_prev = token;
+        token = strtok(NULL, "/");      // /t1 or name
+    }
+	if(token == NULL)
+    	name = token_prev;
+	else
+		name = token;
+	printf("Open file name is %s\n", name);
+
+    DEBUG(dbgFile, "Opening file" << name);
+    directory->FetchFrom(file_tem);
     sector = directory->Find(name); 
     if (sector >= 0) 		
-	openFile = new OpenFile(sector);	// name was found in directory 
+		currentOpenFile = new OpenFile(sector);	// name was found in directory 
     delete directory;
-    return openFile;				// return NULL if not found
+    return currentOpenFile;				// return NULL if not found
+}
+/*
+OpenFile*
+FileSystem::OpenById(OpenFileId sector)
+{
+    if (sector >= 0)
+        openFile = new OpenFile(sector);    // name was found in directory
+    return openFile;                // return NULL if not found
+}*/
+// Andrew
+OpenFileId
+FileSystem::SearchForId(char *name)
+{
+    Directory *directory = new Directory(NumDirEntries);
+    OpenFile *openFile = NULL;
+    int sector = -1;
+
+	//directory = new Directory(NumDirEntries);
+    directory->FetchFrom(directoryFile);
+
+    /* get the first token */
+    OpenFile *file_tem = directoryFile;
+    char *token = strtok(name, "/");
+    char *token_prev;
+    token_prev = token;
+    token = strtok(NULL, "/");
+
+    while( token != NULL ){
+        if ((sector = directory->Find(token_prev)) == -1)
+            break;
+        file_tem = new OpenFile(sector);
+        directory->FetchFrom(file_tem);
+        token_prev = token;
+        token = strtok(NULL, "/");
+    }
+    if(token == NULL)
+        name = token_prev;
+    else
+        name = token;
+
+    DEBUG(dbgFile, "Opening file" << name);
+    directory->FetchFrom(directoryFile);
+    sector = directory->Find(name);
+    if (sector >= 0)
+        currentOpenFile = new OpenFile(sector);    // name was found in directory
+    delete directory;
+    return sector;                // return -1 if not found
 }
 
+int
+FileSystem::Close(OpenFileId id){
+	if (currentOpenFile->getHdrSector() == id){
+		currentOpenFile = NULL;	
+		return 1;
+	}
+	else
+		return -1;
+}
 //----------------------------------------------------------------------
 // FileSystem::Remove
 // 	Delete a file from the file system.  This requires:
@@ -255,51 +448,198 @@ FileSystem::Open(char *name)
 
 bool
 FileSystem::Remove(char *name)
-{ 
-    Directory *directory;
+{
+	Directory *directory;
     PersistentBitmap *freeMap;
     FileHeader *fileHdr;
     int sector;
-    
+
     directory = new Directory(NumDirEntries);
     directory->FetchFrom(directoryFile);
+
+    /* get the first token */
+    OpenFile *file_tem = directoryFile;
+    OpenFile *prev = file_tem;
+    char *token = strtok(name, "/");    // /t0 or name
+    char *token_prev;
+    token_prev = token;
+    bool file = false;
+    while( token != NULL ){
+        if ((sector = directory->Find(token)) == -1 || !directory->IsDirectory(token) ){
+            file = true;
+            break;
+        }
+        printf("Open file in directory %s\n", token);
+        prev = file_tem;
+        file_tem = new OpenFile(sector);
+        directory->FetchFrom(file_tem);
+        token_prev = token;
+        token = strtok(NULL, "/");      // /t1 or name
+    }
+    if(token == NULL)
+        name = token_prev;
+    else
+        name = token;
+    printf("remove file : %s\n",name);
+	if (file)
+        directory->FetchFrom(file_tem);
+    else
+        directory->FetchFrom(prev);
     sector = directory->Find(name);
     if (sector == -1) {
+        printf("WRONG\n");
        delete directory;
-       return FALSE;			 // file not found 
+       return FALSE;             // file not found
     }
     fileHdr = new FileHeader;
     fileHdr->FetchFrom(sector);
 
     freeMap = new PersistentBitmap(freeMapFile,NumSectors);
 
-    fileHdr->Deallocate(freeMap);  		// remove data blocks
-    freeMap->Clear(sector);			// remove header block
+    fileHdr->Deallocate(freeMap);       // remove data blocks
+    freeMap->Clear(sector);         // remove header block
     directory->Remove(name);
 
-    freeMap->WriteBack(freeMapFile);		// flush to disk
-    directory->WriteBack(directoryFile);        // flush to disk
+    freeMap->WriteBack(freeMapFile);        // flush to disk
+    if (file)
+        directory->WriteBack(file_tem);        // flush to disk
+    else
+        directory->WriteBack(prev);
     delete fileHdr;
     delete directory;
     delete freeMap;
+    printf("REMOVE\n");
     return TRUE;
-} 
+}
+bool
+FileSystem::RecursiveRemove(char *name) {
+	Directory *directory;
+    PersistentBitmap *freeMap;
+    FileHeader *fileHdr;
+    int sector;
 
-//----------------------------------------------------------------------
+    directory = new Directory(NumDirEntries);
+    directory->FetchFrom(directoryFile);	
+
+	OpenFile *file_tem = directoryFile;
+	OpenFile *file_dir;
+
+	char pwd[20],buffer[20];
+	strcpy(pwd, name);
+
+    char *token = strtok(name, "/");
+	char *token_prev;
+    token_prev = token;
+
+    while( token != NULL ){
+        if ((sector = directory->Find(token)) == -1 || !directory->IsDirectory(token) )
+            break;
+        file_tem = new OpenFile(sector);
+        directory->FetchFrom(file_tem);
+        token_prev = token;
+        token = strtok(NULL, "/");
+	}
+    if(token == NULL)
+        name = token_prev;
+    else
+        name = token;
+
+    DirectoryEntry *table = directory->getTable();
+	
+	if(directory->IsDirectory(name)){
+		for (int i = 0; i < directory->getTableSize(); i++)
+    	if (table[i].inUse){
+        	if(table[i].isDir){
+				int n =sprintf(buffer,"%s/%s",pwd,table[i].name);
+				RecursiveRemove(buffer);											
+        	}
+			else{
+				sector = directory->Find(table[i].name);
+        		fileHdr = new FileHeader;
+        		fileHdr->FetchFrom(sector);
+        		freeMap = new PersistentBitmap(freeMapFile,NumSectors);
+        		fileHdr->Deallocate(freeMap);
+        		freeMap->Clear(sector);
+        		directory->Remove(table[i].name);
+        		freeMap->WriteBack(freeMapFile);
+        		directory->WriteBack(file_tem);	
+			}
+    	}
+		Remove(pwd);	
+	}
+	else{
+		printf("IS FILE %s\n",name);
+		sector = directory->Find(name);
+		fileHdr = new FileHeader;
+    	fileHdr->FetchFrom(sector);
+		
+		freeMap = new PersistentBitmap(freeMapFile,NumSectors);
+		fileHdr->Deallocate(freeMap);
+		freeMap->Clear(sector);		
+		directory->Remove(name);
+
+		freeMap->WriteBack(freeMapFile);
+		directory->WriteBack(file_tem);
+	}
+
+	delete fileHdr;
+    delete directory;
+    delete freeMap;
+}
+//---------------------------------------------------------------------y
 // FileSystem::List
 // 	List all the files in the file system directory.
 //----------------------------------------------------------------------
 
 void
-FileSystem::List()
+FileSystem::List(char* name)
 {
+	int sector;
     Directory *directory = new Directory(NumDirEntries);
-
     directory->FetchFrom(directoryFile);
+	
+	OpenFile *file_tem = directoryFile;
+    char *token = strtok(name, "/");		// only split once, not twice.
+
+    while( token != NULL ){
+        if ((sector = directory->Find(token)) == -1)
+            break;
+        file_tem = new OpenFile(sector);
+        directory->FetchFrom(file_tem);
+        token = strtok(NULL, "/");
+    }
     directory->List();
+
     delete directory;
+	delete token;
+	delete file_tem;
 }
 
+void
+FileSystem::RecursiveList(char* name)
+{
+	int sector;
+    Directory *directory = new Directory(NumDirEntries);
+    directory->FetchFrom(directoryFile);
+
+    OpenFile *file_tem = directoryFile;
+    char *token = strtok(name, "/");
+
+    while( token != NULL ){
+        if ((sector = directory->Find(token)) == -1)
+            break;
+        file_tem = new OpenFile(sector);
+        directory->FetchFrom(file_tem);
+        token = strtok(NULL, "/");
+    }
+    directory->RecursiveList();
+
+    if(token != NULL){
+        delete directory;
+        delete token;
+        delete file_tem;
+    }
+}
 //----------------------------------------------------------------------
 // FileSystem::Print
 // 	Print everything about the file system:

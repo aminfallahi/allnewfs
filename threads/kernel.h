@@ -20,6 +20,7 @@
 #include "machine.h"
 #include "list.h"
 #include "bitmap.h"
+#include "openfile.h"
 
 class PostOfficeInput;
 class PostOfficeOutput;
@@ -36,13 +37,23 @@ class Kernel {
     void Initialize(); 		// initialize the kernel -- separated
 				// from constructor because 
 				// refers to "kernel" as a global
-
+	// 2015.11.25 added
+	void PrepareToEnd(); // called before all running programs end
+	
+	void ExecAll();
+	int Exec(char* name);
     void ThreadSelfTest();	// self test of threads and synchronization
 
     void ConsoleTest();         // interactive console self test
 
     void NetworkTest();         // interactive 2-machine network test
-    
+    	Thread* getThread(int threadID){return t[threadID];}    
+
+    int CreateFile(char* filename, int initialSize); // fileSystem call
+    OpenFileId OpenFile(char *filename);   // fileSystem call
+    int WriteFile(char *buffer, int size, OpenFileId id);
+    int CloseFile(OpenFileId pid);
+    int ReadFile(char *buffer, int size, OpenFileId id);
 // These are public for notational convenience; really, 
 // they're global variables used everywhere.
 
@@ -68,6 +79,10 @@ class Kernel {
     Bitmap* freeMap;
 
   private:
+      	Thread* t[10];
+	char*   execfile[10];
+	int execfileNum;
+	int threadNum;
 	//int quantum = 1;
     int quantum = TimerTicks;
     bool randomSlice;		// enable pseudo-random time slicing

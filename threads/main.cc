@@ -99,12 +99,16 @@ Copy(char *from, char *to)
 
 // Create a Nachos file of the same length
     DEBUG('f', "Copying file " << from << " of size " << fileLength <<  " to file " << to);
+    
+    	char tem[20];
+	strcpy(tem,to);
     if (!kernel->fileSystem->Create(to, fileLength)) {   // Create Nachos file
         printf("Copy: couldn't create output file %s\n", to);
         Close(fd);
         return;
     }
-    
+    strcpy(to,tem);
+
     openFile = kernel->fileSystem->Open(to);
     ASSERT(openFile != NULL);
     
@@ -162,7 +166,21 @@ RunUserProg(void *filename) {
     }
     ASSERTNOTREACHED();
 }
-
+//----------------------------------------------------------------------
+// MP4 mod tag
+// CreateDirectory
+//      Create a new directory with "name"
+//----------------------------------------------------------------------
+static void
+CreateDirectory(char *name)
+{
+	// MP4 Assignment
+	//printf("create directory %s\n", name);
+	if(!kernel->fileSystem->CreateDirectory(name)){
+		printf("Copy: couldn't create directory %s\n", name);
+		return;
+	}	
+}
 //----------------------------------------------------------------------
 // main
 // 	Bootstrap the operating system kernel.  
@@ -194,6 +212,12 @@ main(int argc, char **argv)
     char *removeFileName = NULL;
     bool dirListFlag = false;
     bool dumpFlag = false;
+    	// MP4 mod tag
+	char *createDirectoryName = NULL;
+	char *listDirectoryName = NULL;
+	bool mkdirFlag = false;
+	bool recursiveListFlag = false;
+	bool recursiveRemoveFlag = false;
 #endif //FILESYS_STUB
 
     // some command line arguments are handled here.
@@ -240,8 +264,36 @@ main(int argc, char **argv)
 	    removeFileName = argv[i + 1];
 	    i++;
 	}
+	else if (strcmp(argv[i], "-rr") == 0) {
+		// MP4 mod tag
+		ASSERT(i + 1 < argc);
+		removeFileName = argv[i + 1];
+		recursiveRemoveFlag = true;
+		i++;
+	}
+	// list
 	else if (strcmp(argv[i], "-l") == 0) {
-	    dirListFlag = true;
+		// MP4 mod tag
+		ASSERT(i + 1 < argc);
+		listDirectoryName = argv[i + 1];
+		dirListFlag = true;
+		i++;
+	}
+	else if (strcmp(argv[i], "-lr") == 0) {
+		// MP4 mod tag
+		// recursive list
+		ASSERT(i + 1 < argc);
+		listDirectoryName = argv[i + 1];
+		dirListFlag = true;
+		recursiveListFlag = true;
+		i++;
+	}
+	else if (strcmp(argv[i], "-mkdir") == 0) {
+		// MP4 mod tag
+		ASSERT(i + 1 < argc);
+		createDirectoryName = argv[i + 1];
+		mkdirFlag = true;
+		i++;
 	}
 	else if (strcmp(argv[i], "-D") == 0) {
 	    dumpFlag = true;
@@ -298,6 +350,10 @@ main(int argc, char **argv)
     if (printFileName != NULL) {
       Print(printFileName);
     }
+    	if (mkdirFlag) {
+		// MP4 mod tag
+		CreateDirectory(createDirectoryName);
+	}
 #endif // FILESYS_STUB
 
     // finally, run an initial user program if requested to do so

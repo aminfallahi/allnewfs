@@ -1,22 +1,9 @@
-// filehdr.cc 
-//	Routines for managing the disk file header (in UNIX, this
-//	would be called the i-node).
+// filehdr.h 
+//	Data structures for managing a disk file header.  
 //
-//	The file header is used to locate where on disk the 
-//	file's data is stored.  We implement this as a fixed size
-//	table of pointers -- each entry in the table points to the 
-//	disk sector containing that portion of the file data
-//	(in other words, there are no indirect or doubly indirect 
-//	blocks). The table size is chosen so that the file header
-//	will be just big enough to fit in one disk sector, 
-//
-//      Unlike in a real system, we do not keep track of file permissions, 
-//	ownership, last modification date, etc., in the file header. 
-//
-//	A file header can be initialized in two ways:
-//	   for a new file, by modifying the in-memory data structure
-//	     to point to the newly allocated data blocks
-//	   for a file already on disk, by reading the file header from disk
+//	A file header describes where on disk to find the data in a file,
+//	along with other information about the file (for instance, its
+//	length, owner, etc.)
 //
 // Copyright (c) 1992-1993 The Regents of the University of California.
 // All rights reserved.  See copyright.h for copyright notice and limitation 
@@ -24,133 +11,79 @@
 
 #include "copyright.h"
 
-#include "filehdr.h"
-#include "debug.h"
-#include "synchdisk.h"
-#include "main.h"
+#ifndef FILEHDR_H
+#define FILEHDR_H
 
-//----------------------------------------------------------------------
-// FileHeader::Allocate
-// 	Initialize a fresh file header for a newly created file.
-//	Allocate data blocks for the file out of the map of free disk blocks.
-//	Return FALSE if there are not enough free blocks to accomodate
-//	the new file.
+
+#include "disk.h"
+#include "pbitmap.h"
+
+// Andrew
+// SectorSize is defined to be  128 bytes in /machine/disk.h
+#define NumDirect 	((SectorSize - 2 * sizeof(int)) / sizeof(int))
+#define MaxFileSize 	(NumDirect * SectorSize)
+
+// The following class defines the Nachos "file header" (in UNIX terms,  
+// the "i-node"), describing where on disk to find all of the data in the file.
+// The file header is organized as a simple table of pointers to
+// data blocks. 
 //
-//	"freeMap" is the bit map of free disk sectors
-//	"fileSize" is the bit map of free disk sectors
-//----------------------------------------------------------------------
-
-bool
-FileHeader::Allocate(PersistentBitmap *freeMap, int fileSize)
-{ 
-    numBytes = fileSize;
-    numSectors  = divRoundUp(fileSize, SectorSize);
-    if (freeMap->NumClear() < numSectors)
-	return FALSE;		// not enough space
-
-    for (int i = 0; i < numSectors; i++) {
-	dataSectors[i] = freeMap->FindAndSet();
-	// since we checked that there was enough free space,
-	// we expect this to succeed
-	ASSERT(dataSectors[i] >= 0);
-    }
-    return TRUE;
-}
-
-//----------------------------------------------------------------------
-// FileHeader::Deallocate
-// 	De-allocate all the space allocated for data blocks for this file.
+// The file header data structure can be stored in memory or on disk.
+// When it is on disk, it is stored in a single sector -- this means
+// that we assume the size of this data structure to be the same
+// as one disk sector.  Without indirect addressing, this
+// limits the maximum file length to just under 4K bytes.
 //
-//	"freeMap" is the bit map of free disk sectors
-//----------------------------------------------------------------------
+// There is no constructor; rather the file header can be initialized
+// by allocating blocks for the file (if it is a new file), or by
+// reading it from disk.
 
-void 
-FileHeader::Deallocate(PersistentBitmap *freeMap)
-{
-    for (int i = 0; i < numSectors; i++) {
-	ASSERT(freeMap->Test((int) dataSectors[i]));  // ought to be marked!
-	freeMap->Clear((int) dataSectors[i]);
-    }
-}
+class FileHeader {
+  public:
+	// MP4 mod tag
+	FileHeader(); // dummy constructor to keep valgrind happy
+	~FileHeader();
+	
+    bool Allocate(PersistentBitmap *bitMap, int fileSize);// Initialize a file header, 
+						//  including allocating space 
+						//  on disk for the file data
+    void Deallocate(PersistentBitmap *bitMap);  // De-allocate this file's 
+						//  data blocks
 
-//----------------------------------------------------------------------
-// FileHeader::FetchFrom
-// 	Fetch contents of file header from disk. 
-//
-//	"sector" is the disk sector containing the file header
-//----------------------------------------------------------------------
+    void FetchFrom(int sectorNumber); 	// Initialize file header from disk
+    void WriteBack(int sectorNumber); 	// Write modifications to file header
+					//  back to disk
 
-void
-FileHeader::FetchFrom(int sector)
-{
-    kernel->synchDisk->ReadSector(sector, (char *)this);
-}
+    int ByteToSector(int offset);	// Convert a byte offset into the file
+					// to the disk sector containing
+					// the byte
 
-//----------------------------------------------------------------------
-// FileHeader::WriteBack
-// 	Write the modified contents of the file header back to disk. 
-//
-//	"sector" is the disk sector to contain the file header
-//----------------------------------------------------------------------
+    int FileLength();			// Return the length of the file 
+					// in bytes
 
-void
-FileHeader::WriteBack(int sector)
-{
-    kernel->synchDisk->WriteSector(sector, (char *)this); 
-}
+    void Print();			// Print the contents of the file.
 
-//----------------------------------------------------------------------
-// FileHeader::ByteToSector
-// 	Return which disk sector is storing a particular byte within the file.
-//      This is essentially a translation from a virtual address (the
-//	offset in the file) to a physical address (the sector where the
-//	data at the offset is stored).
-//
-//	"offset" is the location within the file of the byte in question
-//----------------------------------------------------------------------
+  private:
+	
+	/*
+		MP4 hint:
+		You will need a data structure to store more information in a header.
+		Fields in a class can be separated into disk part and in-core part.
+		Disk part are data that will be written into disk.
+		In-core part are data only lies in memory, and are used to maintain the data structure of this class.
+		In order to implement a data structure, you will need to add some "in-core" data
+		to maintain data structure.
+		
+		Disk Part - numBytes, numSectors, dataSectors occupy exactly 128 bytes and will be
+		written to a sector on disk.
+		In-core part - none
+		
+	*/
 
-int
-FileHeader::ByteToSector(int offset)
-{
-    return(dataSectors[offset / SectorSize]);
-}
+    int numBytes;			// Number of bytes in the file
+    int numSectors;			// Number of data sectors in the file
+    int dataSectors[NumDirect];		// Disk sector numbers for each data 
+									// block in the file
+};
 
-//----------------------------------------------------------------------
-// FileHeader::FileLength
-// 	Return the number of bytes in the file.
-//----------------------------------------------------------------------
-
-int
-FileHeader::FileLength()
-{
-    return numBytes;
-}
-
-//----------------------------------------------------------------------
-// FileHeader::Print
-// 	Print the contents of the file header, and the contents of all
-//	the data blocks pointed to by the file header.
-//----------------------------------------------------------------------
-
-void
-FileHeader::Print()
-{
-    int i, j, k;
-    char *data = new char[SectorSize];
-
-    printf("FileHeader contents.  File size: %d.  File blocks:\n", numBytes);
-    for (i = 0; i < numSectors; i++)
-	printf("%d ", dataSectors[i]);
-    printf("\nFile contents:\n");
-    for (i = k = 0; i < numSectors; i++) {
-	kernel->synchDisk->ReadSector(dataSectors[i], data);
-        for (j = 0; (j < SectorSize) && (k < numBytes); j++, k++) {
-	    if ('\040' <= data[j] && data[j] <= '\176')   // isprint(data[j])
-		printf("%c", data[j]);
-            else
-		printf("\\%x", (unsigned char)data[j]);
-	}
-        printf("\n"); 
-    }
-    delete [] data;
-}
+#endif // FILEHDR_H

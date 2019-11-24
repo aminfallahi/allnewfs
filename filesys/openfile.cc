@@ -30,6 +30,7 @@ OpenFile::OpenFile(int sector)
 { 
     hdr = new FileHeader;
     hdr->FetchFrom(sector);
+	hdrSector = sector;
     seekPosition = 0;
 }
 
@@ -122,7 +123,7 @@ OpenFile::ReadAt(char *into, int numBytes, int position)
     if ((numBytes <= 0) || (position >= fileLength))
     	return 0; 				// check request
     if ((position + numBytes) > fileLength)		
-	numBytes = fileLength - position;
+		numBytes = fileLength - position;
     DEBUG(dbgFile, "Reading " << numBytes << " bytes at " << position << " from file of length " << fileLength);
 
     firstSector = divRoundDown(position, SectorSize);
@@ -149,6 +150,8 @@ OpenFile::WriteAt(char *from, int numBytes, int position)
     bool firstAligned, lastAligned;
     char *buf;
 
+	//printf("numBytes = %d, position = %d, fileLength = %d\n", numBytes, position, fileLength);
+
     if ((numBytes <= 0) || (position >= fileLength))
 	return 0;				// check request
     if ((position + numBytes) > fileLength)
@@ -159,7 +162,12 @@ OpenFile::WriteAt(char *from, int numBytes, int position)
     lastSector = divRoundDown(position + numBytes - 1, SectorSize);
     numSectors = 1 + lastSector - firstSector;
 
+	//printf("first sector = %d, last sector = %d, numSectors = %d\n", firstSector, lastSector, numSectors);
+
     buf = new char[numSectors * SectorSize];
+	
+	// Mp4 mod tag
+	memset(buf, 0, sizeof(char) * numSectors * SectorSize); // dummy operation to keep valgrind happy
 
     firstAligned = (position == (firstSector * SectorSize));
     lastAligned = ((position + numBytes) == ((lastSector + 1) * SectorSize));
@@ -171,14 +179,15 @@ OpenFile::WriteAt(char *from, int numBytes, int position)
         ReadAt(&buf[(lastSector - firstSector) * SectorSize], 
 				SectorSize, lastSector * SectorSize);	
 
+
 // copy in the bytes we want to change 
     bcopy(from, &buf[position - (firstSector * SectorSize)], numBytes);
-
 // write modified sectors back
     for (i = firstSector; i <= lastSector; i++)	
         kernel->synchDisk->WriteSector(hdr->ByteToSector(i * SectorSize), 
 					&buf[(i - firstSector) * SectorSize]);
     delete [] buf;
+
     return numBytes;
 }
 

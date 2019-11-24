@@ -37,6 +37,9 @@
 #include "list.h"
 #include "callback.h"
 
+// James
+typedef int OpenFileId;
+
 // Interrupts can be disabled (IntOff) or enabled (IntOn)
 enum IntStatus { IntOff, IntOn };
 
@@ -93,7 +96,12 @@ class Interrupt {
 				// next interrupt
 
     void Halt(); 		// quit and print out stats
-    
+
+    void PrintInt(int number);
+	#ifdef FILESYS_STUB
+	int CreateFile(char *filename);
+	#endif 
+
     void YieldOnReturn();	// cause a context switch on return 
 				// from an interrupt handler
 
@@ -103,6 +111,11 @@ class Interrupt {
 
     void DumpState();		// Print interrupt state
     
+	int CreateFile(char *filename, int initialSize);
+    int WriteFile(char *buffer, int size, OpenFileId id);
+    int ReadFile(char *buffer, int size, OpenFileId id);
+    int CloseFile(OpenFileId pid);
+	OpenFileId OpenFile(char *filename);
 
     // NOTE: the following are internal to the hardware simulation code.
     // DO NOT call these directly.  I should make them "private",
@@ -121,7 +134,10 @@ class Interrupt {
     SortedList<PendingInterrupt *> *pending;		
     				// the list of interrupts scheduled
 				// to occur in the future
+    //int writeFileNo;            //UNIX file emulating the display
     bool inHandler;		// TRUE if we are running an interrupt handler
+    //bool putBusy;               // Is a PrintInt operation in progress
+                                  //If so, you cannoot do another one
     bool yieldOnReturn; 	// TRUE if we are to context switch
 				// on return from the interrupt handler
     MachineStatus status;	// idle, kernel mode, user mode
